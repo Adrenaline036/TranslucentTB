@@ -1,0 +1,76 @@
+name: Release (tag driven)
+
+# Pushing a tag like v2026.2-patched builds both platforms and publishes a
+# permanent GitHub Release with the resulting portable archives attached.
+#
+#   git tag v2026.2-patched
+#   git push origin v2026.2-patched
+#
+# Nothing runs on ordinary branch pushes; this workflow is tag-only.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v2026.2-patched)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ttb-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  x64:
+    uses: ./.github/workflows/build-platform.yml
+    with:
+      platform: x64
+
+  arm64:
+    uses: ./.github/workflows/build-platform.yml
+    with:
+      platform: ARM64
+
+  release:
+    needs: [x64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag name
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download x64 portable
+        uses: actions/download-artifact@v4
+        with:
+          name: TranslucentTB-portable-x64
+          path: dist
+
+      - name: Download ARM64 portable
+        uses: actions/download-artifact@v4
+        with:
+          name: TranslucentTB-portable-ARM64
+          path: dist
+
+      - name: Inspect collected assets
+        shell: bash
+        run: ls -l dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: dist/*.zip

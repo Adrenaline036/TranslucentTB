@@ -1,4 +1,11 @@
-name: Build TranslucentTB x64
+name: Build TranslucentTB (all platforms)
+
+# Builds x64 and ARM64 in parallel. Triggered by pushes to the release branch and
+# by manual dispatch. Artifacts are kept 30 days.
+#
+# To publish a permanent Release instead, push a version tag:
+#   git tag v2026.2-patched && git push origin v2026.2-patched
+# which runs release.yml.
 
 on:
   push:
@@ -10,68 +17,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: translucenttb-x64-${{ github.ref }}
+  group: ttb-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: windows-2025-vs2026
-    timeout-minutes: 45
+  x64:
+    uses: ./.github/workflows/build-platform.yml
+    with:
+      platform: x64
 
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: '[18.0,19.0)'
-
-      - name: Show toolchain versions
-        shell: pwsh
-        run: |
-          Write-Host "MSBuild:"
-          msbuild -version
-          Write-Host "NuGet:"
-          nuget help | Select-Object -First 2
-          Write-Host "vcpkg:"
-          vcpkg version
-
-      - name: Integrate vcpkg
-        shell: pwsh
-        run: vcpkg integrate install
-
-      - name: Restore NuGet packages
-        shell: pwsh
-        run: nuget restore TranslucentTB.slnx -NonInteractive
-
-      - name: Build x64 Release
-        shell: pwsh
-        run: |
-          msbuild TranslucentTB.slnx `
-            /m:1 `
-            /p:Configuration=Release `
-            /p:Platform=x64 `
-            /p:BuildType=Dev `
-            /p:SkipSigning=True
-
-      - name: Create portable x64 build
-        shell: pwsh
-        run: |
-          .\.azp\scripts\create-portable.ps1 `
-            -Platform x64 `
-            -Configuration Release `
-            -WorkDir "${{ runner.temp }}" `
-            -OutputDir "${{ runner.temp }}\portable" `
-            -NoConfig `
-            -Compress
-
-      - name: Upload portable build
-        uses: actions/upload-artifact@v4
-        with:
-          name: TranslucentTB-portable-x64
-          path: ${{ runner.temp }}\portable\TranslucentTB-portable-x64.zip
-          if-no-files-found: error
-          retention-days: 3
+  arm64:
+    uses: ./.github/workflows/build-platform.yml
+    with:
+      platform: ARM64

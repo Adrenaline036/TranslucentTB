@@ -1,0 +1,76 @@
+name: Build platform (reusable)
+
+# Reusable build template. Called by build.yml (branch pushes, manual) and
+# release.yml (tag pushes). One invocation builds exactly one platform.
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: 'Target platform: x64 or ARM64'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[18.0,19.0)'
+
+      - name: Show toolchain versions
+        shell: pwsh
+        run: |
+          Write-Host "Platform: ${{ inputs.platform }}"
+          msbuild -version
+          nuget help | Select-Object -First 2
+          vcpkg version
+
+      - name: Integrate vcpkg
+        shell: pwsh
+        run: vcpkg integrate install
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: nuget restore TranslucentTB.slnx -NonInteractive
+
+      - name: Build ${{ inputs.platform }} Release
+        shell: pwsh
+        run: |
+          msbuild TranslucentTB.slnx `
+            /m:1 `
+            /p:Configuration=Release `
+            /p:Platform=${{ inputs.platform }} `
+            /p:BuildType=Dev `
+            /p:SkipSigning=True
+
+      - name: Create portable ${{ inputs.platform }} build
+        shell: pwsh
+        run: |
+          .\.azp\scripts\create-portable.ps1 `
+            -Platform ${{ inputs.platform }} `
+            -Configuration Release `
+            -WorkDir "${{ runner.temp }}" `
+            -OutputDir "${{ runner.temp }}\portable" `
+            -NoConfig `
+            -Compress
+
+      - name: Upload portable ${{ inputs.platform }} build
+        uses: actions/upload-artifact@v4
+        with:
+          name: TranslucentTB-portable-${{ inputs.platform }}
+          path: ${{ runner.temp }}\portable\TranslucentTB-portable-*.zip
+          if-no-files-found: error
+          retention-days: 30
